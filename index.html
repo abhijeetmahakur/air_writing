@@ -1,0 +1,1165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AirWrite — Neon Air Drawing</title>
+  <meta name="description" content="Draw in the air using your index finger and webcam. Powered by MediaPipe Hands with neon glow effects." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;900&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --pink:   #FF4DC4;
+      --purple: #B44DFF;
+      --cyan:   #00E5FF;
+      --green:  #39FF14;
+      --yellow: #FFE600;
+      --white:  #FFFFFF;
+      --bg:     #0A0A12;
+      --panel:  rgba(15,15,28,0.88);
+      --border: rgba(255,255,255,0.09);
+      --radius: 18px;
+      --font:   'Outfit', sans-serif;
+    }
+
+    html, body {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: var(--bg);
+      font-family: var(--font);
+      color: #fff;
+    }
+
+    #app {
+      position: relative;
+      width: 100vw; height: 100vh;
+    }
+
+    /* ── Video + Canvas stack ── */
+    #media-stack {
+      position: absolute;
+      inset: 0;
+    }
+
+    #webcam {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1);
+      display: block;
+    }
+
+    #draw-canvas, #landmark-canvas, #particle-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+    }
+
+    #draw-canvas     { z-index: 10; }
+    #particle-canvas { z-index: 11; }
+    #landmark-canvas { z-index: 12; }
+
+    /* ── Toolbar ── */
+    #toolbar {
+      position: absolute;
+      right: 18px;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 50;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 12px;
+      backdrop-filter: blur(22px);
+      -webkit-backdrop-filter: blur(22px);
+      box-shadow: 0 8px 40px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.07);
+      width: 72px;
+      align-items: center;
+    }
+
+    .tb-label {
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.35);
+      margin-bottom: 2px;
+      text-align: center;
+    }
+
+    /* Color swatches */
+    #color-palette {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin-bottom: 4px;
+    }
+
+    .swatch {
+      width: 24px; height: 24px;
+      border-radius: 50%;
+      cursor: pointer;
+      border: 2px solid transparent;
+      transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
+    }
+    .swatch:hover { transform: scale(1.18); }
+    .swatch.active {
+      border-color: #fff;
+      box-shadow: 0 0 14px 3px currentColor;
+      transform: scale(1.22);
+    }
+
+    /* Divider */
+    .tb-divider {
+      width: 100%;
+      height: 1px;
+      background: var(--border);
+      margin: 2px 0;
+    }
+
+    /* Sliders */
+    .tb-slider-wrap {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+
+    input[type=range] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 48px;
+      height: 4px;
+      border-radius: 2px;
+      background: rgba(255,255,255,0.15);
+      outline: none;
+      cursor: pointer;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      background: var(--pink);
+      cursor: pointer;
+      box-shadow: 0 0 8px var(--pink);
+      transition: box-shadow 0.2s;
+    }
+    input[type=range]::-webkit-slider-thumb:hover {
+      box-shadow: 0 0 14px var(--pink);
+    }
+
+    /* Buttons */
+    .tb-btn {
+      width: 44px; height: 36px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.05);
+      color: #fff;
+      font-family: var(--font);
+      font-size: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, box-shadow 0.15s, transform 0.1s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      flex-direction: column;
+    }
+    .tb-btn:hover {
+      background: rgba(255,255,255,0.12);
+      transform: scale(1.06);
+    }
+    .tb-btn:active { transform: scale(0.95); }
+    .tb-btn.active {
+      background: rgba(255,77,196,0.25);
+      border-color: var(--pink);
+      box-shadow: 0 0 12px rgba(255,77,196,0.45);
+    }
+    .tb-btn .icon  { font-size: 16px; line-height: 1; }
+    .tb-btn .blabel { font-size: 8px; opacity: 0.65; }
+
+    /* ── Mode Badge ── */
+    #mode-badge {
+      position: absolute;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 60;
+      padding: 8px 22px;
+      border-radius: 100px;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1.5px solid rgba(255,255,255,0.15);
+      transition: background 0.3s, border-color 0.3s, box-shadow 0.3s, color 0.3s;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    #mode-badge.draw {
+      background: rgba(255,77,196,0.22);
+      border-color: var(--pink);
+      color: var(--pink);
+      box-shadow: 0 0 22px rgba(255,77,196,0.4);
+    }
+    #mode-badge.erase {
+      background: rgba(0,229,255,0.18);
+      border-color: var(--cyan);
+      color: var(--cyan);
+      box-shadow: 0 0 22px rgba(0,229,255,0.35);
+    }
+    #mode-badge.idle {
+      background: rgba(255,255,255,0.06);
+      border-color: rgba(255,255,255,0.13);
+      color: rgba(255,255,255,0.45);
+      box-shadow: none;
+    }
+
+    /* ── Splash Screen ── */
+    #splash {
+      position: absolute;
+      inset: 0;
+      z-index: 200;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg);
+      gap: 20px;
+      transition: opacity 0.5s;
+    }
+    #splash.hidden { opacity: 0; pointer-events: none; }
+
+    .splash-logo {
+      font-size: 52px;
+      font-weight: 900;
+      background: linear-gradient(135deg, var(--pink), var(--purple), var(--cyan));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      filter: drop-shadow(0 0 20px rgba(255,77,196,0.55));
+    }
+    .splash-sub {
+      font-size: 14px;
+      color: rgba(255,255,255,0.4);
+      letter-spacing: 3.5px;
+      text-transform: uppercase;
+    }
+    #start-btn {
+      margin-top: 8px;
+      padding: 14px 42px;
+      border-radius: 100px;
+      border: none;
+      background: linear-gradient(135deg, var(--pink), var(--purple));
+      color: #fff;
+      font-family: var(--font);
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 0 32px rgba(255,77,196,0.5);
+      transition: transform 0.15s, box-shadow 0.15s;
+      letter-spacing: 1px;
+    }
+    #start-btn:hover {
+      transform: scale(1.06);
+      box-shadow: 0 0 48px rgba(255,77,196,0.7);
+    }
+    .splash-hint {
+      font-size: 12px;
+      color: rgba(255,255,255,0.28);
+      text-align: center;
+      max-width: 320px;
+      line-height: 1.9;
+    }
+
+    /* ── Error Screen ── */
+    #error-screen {
+      display: none;
+      position: absolute;
+      inset: 0;
+      z-index: 210;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg);
+      gap: 16px;
+    }
+    #error-screen.visible { display: flex; }
+    .err-icon  { font-size: 48px; }
+    .err-title { font-size: 22px; font-weight: 700; color: #ff6b6b; }
+    .err-msg   { font-size: 13px; color: rgba(255,255,255,0.4); text-align: center; max-width: 340px; line-height: 1.7; }
+    #retry-btn {
+      padding: 11px 32px;
+      border-radius: 100px;
+      border: 1px solid #ff6b6b;
+      background: rgba(255,107,107,0.15);
+      color: #ff6b6b;
+      font-family: var(--font);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    #retry-btn:hover { background: rgba(255,107,107,0.28); }
+
+    /* ── Status Bar ── */
+    #status-bar {
+      position: absolute;
+      top: 14px;
+      left: 16px;
+      z-index: 60;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .stat-pill {
+      background: rgba(0,0,0,0.5);
+      border: 1px solid var(--border);
+      border-radius: 100px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.55);
+      backdrop-filter: blur(8px);
+    }
+    #fps-pill { color: var(--green); }
+
+    /* ── Ghost indicator ── */
+    #ghost-indicator {
+      position: absolute;
+      top: 14px;
+      right: 100px;
+      z-index: 60;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      color: rgba(0,229,255,0.6);
+      display: none;
+      align-items: center;
+      gap: 5px;
+    }
+    #ghost-indicator.on { display: flex; }
+    #ghost-indicator::before {
+      content: '';
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--cyan);
+      box-shadow: 0 0 8px var(--cyan);
+      animation: pulse 1.4s infinite;
+    }
+    @keyframes pulse {
+      0%,100% { opacity: 1; }
+      50%      { opacity: 0.25; }
+    }
+
+    /* ── Keyboard hint ── */
+    #shortcut-hint {
+      position: absolute;
+      bottom: 70px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 55;
+      font-size: 10px;
+      color: rgba(255,255,255,0.18);
+      letter-spacing: 1.5px;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    /* ── Toast ── */
+    #toast {
+      position: absolute;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-70px);
+      z-index: 100;
+      background: rgba(15,15,28,0.92);
+      border: 1px solid var(--border);
+      border-radius: 100px;
+      padding: 8px 20px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #fff;
+      backdrop-filter: blur(14px);
+      transition: transform 0.35s cubic-bezier(.34,1.56,.64,1), opacity 0.35s;
+      opacity: 0;
+      pointer-events: none;
+    }
+    #toast.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+    }
+
+    /* Loading spinner on splash */
+    #loading-indicator {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+    #loading-indicator.visible { display: flex; }
+    .spinner {
+      width: 32px; height: 32px;
+      border: 3px solid rgba(255,77,196,0.2);
+      border-top-color: var(--pink);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-text { font-size: 13px; color: rgba(255,255,255,0.4); letter-spacing: 1px; }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ── Splash Screen ── -->
+  <div id="splash">
+    <div class="splash-logo">✍ AirWrite</div>
+    <div class="splash-sub">Neon Air Drawing</div>
+    <button id="start-btn" onclick="startApp()">Enable Camera</button>
+    <div id="loading-indicator">
+      <div class="spinner"></div>
+      <div class="loading-text">Loading hand tracking…</div>
+    </div>
+    <p class="splash-hint">
+      ☝ Raise only your index finger to <strong style="color:var(--pink)">DRAW</strong><br>
+      🖐 Open palm (all fingers) to <strong style="color:var(--cyan)">ERASE</strong><br>
+      Allow webcam access when prompted
+    </p>
+  </div>
+
+  <!-- ── Error Screen ── -->
+  <div id="error-screen">
+    <div class="err-icon">📷</div>
+    <div class="err-title">Camera Access Denied</div>
+    <div class="err-msg" id="error-msg">
+      Please allow camera access in your browser settings and reload the page.
+    </div>
+    <button id="retry-btn" onclick="location.reload()">Reload & Retry</button>
+  </div>
+
+  <!-- ── Video + Canvas Stack ── -->
+  <div id="media-stack">
+    <video id="webcam" autoplay muted playsinline></video>
+    <canvas id="draw-canvas"></canvas>
+    <canvas id="particle-canvas"></canvas>
+    <canvas id="landmark-canvas"></canvas>
+  </div>
+
+  <!-- ── Status Bar ── -->
+  <div id="status-bar">
+    <span class="stat-pill" id="fps-pill">-- FPS</span>
+    <span class="stat-pill" id="hand-pill">No Hand</span>
+  </div>
+
+  <!-- ── Ghost Indicator ── -->
+  <div id="ghost-indicator">👻 GHOST ON</div>
+
+  <!-- ── Toolbar ── -->
+  <div id="toolbar">
+    <span class="tb-label">Color</span>
+    <div id="color-palette">
+      <div class="swatch active" data-color="#FF4DC4" style="background:#FF4DC4;color:#FF4DC4;" title="Pink"></div>
+      <div class="swatch" data-color="#B44DFF" style="background:#B44DFF;color:#B44DFF;" title="Purple"></div>
+      <div class="swatch" data-color="#00E5FF" style="background:#00E5FF;color:#00E5FF;" title="Cyan"></div>
+      <div class="swatch" data-color="#39FF14" style="background:#39FF14;color:#39FF14;" title="Green"></div>
+      <div class="swatch" data-color="#FFE600" style="background:#FFE600;color:#FFE600;" title="Yellow"></div>
+      <div class="swatch" data-color="#FFFFFF" style="background:#FFFFFF;color:#FFFFFF;" title="White"></div>
+    </div>
+
+    <div class="tb-divider"></div>
+    <span class="tb-label">Size</span>
+    <div class="tb-slider-wrap">
+      <input type="range" id="size-slider" min="2" max="30" value="10" title="Stroke Size" />
+    </div>
+
+    <div class="tb-divider"></div>
+    <span class="tb-label">Glow</span>
+    <div class="tb-slider-wrap">
+      <input type="range" id="glow-slider" min="0" max="40" value="18" title="Glow Intensity" />
+    </div>
+
+    <div class="tb-divider"></div>
+    <button class="tb-btn" id="eraser-btn" title="Eraser (E)" onclick="toggleEraser()">
+      <span class="icon">⬜</span>
+      <span class="blabel">ERASE</span>
+    </button>
+    <button class="tb-btn" id="ghost-btn" title="Ghost Mode (G)" onclick="toggleGhost()">
+      <span class="icon">👻</span>
+      <span class="blabel">GHOST</span>
+    </button>
+    <button class="tb-btn" id="undo-btn" title="Undo (Z)" onclick="undo()">
+      <span class="icon">↩</span>
+      <span class="blabel">UNDO</span>
+    </button>
+    <button class="tb-btn" id="clear-btn" title="Clear (C)" onclick="clearCanvas()">
+      <span class="icon">🗑</span>
+      <span class="blabel">CLEAR</span>
+    </button>
+    <button class="tb-btn" id="save-btn" title="Save (S)" onclick="saveImage()">
+      <span class="icon">💾</span>
+      <span class="blabel">SAVE</span>
+    </button>
+  </div>
+
+  <!-- ── Mode Badge ── -->
+  <div id="mode-badge" class="idle">✋ SHOW HAND</div>
+
+  <!-- ── Keyboard hint ── -->
+  <div id="shortcut-hint">C: clear &nbsp;·&nbsp; Z: undo &nbsp;·&nbsp; G: ghost &nbsp;·&nbsp; S: save &nbsp;·&nbsp; E: eraser</div>
+
+  <!-- ── Toast ── -->
+  <div id="toast"></div>
+
+</div>
+
+<!-- ════════════════════════════════════════════════════
+     MediaPipe — pinned exact versions for stability
+     ════════════════════════════════════════════════════ -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js"
+        crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js"
+        crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.1675466124/drawing_utils.js"
+        crossorigin="anonymous"></script>
+
+<script>
+'use strict';
+
+/* ═══════════════════════════════════════════════════
+   STATE
+═══════════════════════════════════════════════════ */
+const state = {
+  color:         '#FF4DC4',
+  lineWidth:     10,
+  glowBlur:      18,
+  eraser:        false,
+  ghost:         false,
+  drawing:       false,
+  strokes:       [],        // completed strokes (for undo)
+  eraseOps:      [],        // FIX: erase circles stored separately, replayed after strokes
+  currentStroke: null,      // stroke being drawn right now
+  particles:     [],
+  handVisible:   false,
+};
+
+/* ═══════════════════════════════════════════════════
+   DOM REFS
+═══════════════════════════════════════════════════ */
+const video       = document.getElementById('webcam');
+const drawCanvas  = document.getElementById('draw-canvas');
+const partCanvas  = document.getElementById('particle-canvas');
+const lmCanvas    = document.getElementById('landmark-canvas');
+const drawCtx     = drawCanvas.getContext('2d');
+const partCtx     = partCanvas.getContext('2d');
+const lmCtx       = lmCanvas.getContext('2d');
+const modeBadge   = document.getElementById('mode-badge');
+const fpsPill     = document.getElementById('fps-pill');
+const handPill    = document.getElementById('hand-pill');
+const ghostInd    = document.getElementById('ghost-indicator');
+const toast       = document.getElementById('toast');
+const errScreen   = document.getElementById('error-screen');
+const errMsg      = document.getElementById('error-msg');
+
+/* ═══════════════════════════════════════════════════
+   CANVAS RESIZE
+═══════════════════════════════════════════════════ */
+function resizeCanvases() {
+  const W = window.innerWidth, H = window.innerHeight;
+  [drawCanvas, partCanvas, lmCanvas].forEach(c => {
+    c.width  = W;
+    c.height = H;
+  });
+}
+window.addEventListener('resize', () => { resizeCanvases(); redrawAll(); });
+resizeCanvases();
+
+/* ═══════════════════════════════════════════════════
+   TOOLBAR EVENTS
+═══════════════════════════════════════════════════ */
+document.querySelectorAll('.swatch').forEach(sw => {
+  sw.addEventListener('click', () => {
+    document.querySelectorAll('.swatch').forEach(s => s.classList.remove('active'));
+    sw.classList.add('active');
+    state.color  = sw.dataset.color;
+    state.eraser = false;
+    document.getElementById('eraser-btn').classList.remove('active');
+  });
+});
+
+document.getElementById('size-slider').addEventListener('input', e => {
+  state.lineWidth = +e.target.value;
+});
+document.getElementById('glow-slider').addEventListener('input', e => {
+  state.glowBlur = +e.target.value;
+});
+
+/* ═══════════════════════════════════════════════════
+   TOOLBAR BUTTON ACTIONS
+═══════════════════════════════════════════════════ */
+function toggleEraser() {
+  state.eraser = !state.eraser;
+  document.getElementById('eraser-btn').classList.toggle('active', state.eraser);
+  showToast(state.eraser ? '⬜ Eraser ON' : '✏️ Draw Mode');
+}
+
+function toggleGhost() {
+  state.ghost = !state.ghost;
+  document.getElementById('ghost-btn').classList.toggle('active', state.ghost);
+  ghostInd.classList.toggle('on', state.ghost);
+  // Reset born time for all existing strokes so they fade from now
+  if (state.ghost) {
+    const now = Date.now();
+    state.strokes.forEach(s => { s.born = now; s.alpha = 1.0; });
+  }
+  showToast(state.ghost ? '👻 Ghost Mode ON' : '👻 Ghost Mode OFF');
+}
+
+function undo() {
+  if (state.strokes.length === 0 && state.eraseOps.length === 0) {
+    showToast('Nothing to undo');
+    return;
+  }
+  // Undo last stroke or last erase op, whichever is newer
+  const lastStroke = state.strokes[state.strokes.length - 1];
+  const lastErase  = state.eraseOps[state.eraseOps.length - 1];
+  if (lastErase && (!lastStroke || lastErase.ts > lastStroke.born)) {
+    state.eraseOps.pop();
+  } else if (lastStroke) {
+    state.strokes.pop();
+  }
+  redrawAll();
+  showToast('↩ Undone');
+}
+
+function clearCanvas() {
+  // FIX: also clear eraseOps so they don't haunt future redraws
+  state.strokes  = [];
+  state.eraseOps = [];
+  drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+  showToast('🗑 Canvas cleared');
+}
+
+function saveImage() {
+  const comp = document.createElement('canvas');
+  comp.width  = drawCanvas.width;
+  comp.height = drawCanvas.height;
+  const ctx = comp.getContext('2d');
+  // Mirrored video frame
+  ctx.save();
+  ctx.translate(comp.width, 0);
+  ctx.scale(-1, 1);
+  ctx.drawImage(video, 0, 0, comp.width, comp.height);
+  ctx.restore();
+  // Drawing layer on top
+  ctx.drawImage(drawCanvas, 0, 0);
+  const a = document.createElement('a');
+  a.download = `airwrite_${Date.now()}.png`;
+  a.href = comp.toDataURL('image/png');
+  a.click();
+  showToast('💾 Saved!');
+}
+
+/* ═══════════════════════════════════════════════════
+   KEYBOARD SHORTCUTS
+═══════════════════════════════════════════════════ */
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  switch (e.key.toLowerCase()) {
+    case 'c': clearCanvas();  break;
+    case 'z': undo();         break;
+    case 'g': toggleGhost();  break;
+    case 's': saveImage();    break;
+    case 'e': toggleEraser(); break;
+  }
+});
+
+/* ═══════════════════════════════════════════════════
+   TOAST
+═══════════════════════════════════════════════════ */
+let _toastTimer = null;
+function showToast(msg) {
+  toast.textContent = msg;
+  toast.classList.add('show');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => toast.classList.remove('show'), 2200);
+}
+
+/* ═══════════════════════════════════════════════════
+   DRAWING — stroke management
+═══════════════════════════════════════════════════ */
+function beginStroke(x, y) {
+  state.currentStroke = {
+    color:     state.eraser ? null : state.color,
+    lineWidth: state.lineWidth,
+    glowBlur:  state.eraser ? 0 : state.glowBlur,
+    points:    [{ x, y }],
+    isEraser:  state.eraser,
+    alpha:     1.0,
+    born:      Date.now(),
+  };
+  state.drawing = true;
+}
+
+function continueStroke(x, y) {
+  if (!state.drawing || !state.currentStroke) return;
+  const pts = state.currentStroke.points;
+  const prev = pts[pts.length - 1];
+  pts.push({ x, y });
+  // Incremental: draw only the newest segment directly (fast path)
+  paintSegment(drawCtx, state.currentStroke, prev, { x, y });
+  spawnParticles(x, y, state.currentStroke.color || '#fff');
+}
+
+function endStroke() {
+  if (!state.drawing || !state.currentStroke) return;
+  if (state.currentStroke.points.length >= 2) {
+    state.strokes.push(state.currentStroke);
+  }
+  state.currentStroke = null;
+  state.drawing = false;
+}
+
+/* ─── Paint a single segment from p0→p1 with style from stroke ─── */
+function paintSegment(ctx, stroke, p0, p1) {
+  ctx.save();
+  const alpha = stroke.alpha ?? 1;
+  if (stroke.isEraser) {
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = 'rgba(0,0,0,1)';
+    ctx.lineWidth   = stroke.lineWidth * 3;
+    ctx.shadowBlur  = 0;
+  } else {
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = stroke.color;
+    ctx.lineWidth   = stroke.lineWidth;
+    if (stroke.glowBlur > 0) {
+      ctx.shadowColor = stroke.color;
+      ctx.shadowBlur  = stroke.glowBlur * 2.5;
+    }
+  }
+  ctx.lineCap  = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(p0.x, p0.y);
+  ctx.lineTo(p1.x, p1.y);
+  ctx.stroke();
+
+  // Extra glow pass
+  if (!stroke.isEraser && stroke.glowBlur > 0) {
+    ctx.globalAlpha = 0.3 * alpha;
+    ctx.lineWidth   = stroke.lineWidth * 2.4;
+    ctx.shadowBlur  = stroke.glowBlur * 5;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/* ─── Full smooth stroke from all points (used in redrawAll) ─── */
+function paintFullStroke(ctx, stroke) {
+  const pts = stroke.points;
+  if (pts.length < 2) return;
+  ctx.save();
+  const alpha = stroke.alpha ?? 1;
+  if (stroke.isEraser) {
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = 'rgba(0,0,0,1)';
+    ctx.lineWidth   = stroke.lineWidth * 3;
+    ctx.shadowBlur  = 0;
+  } else {
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = stroke.color;
+    ctx.lineWidth   = stroke.lineWidth;
+    if (stroke.glowBlur > 0) {
+      ctx.shadowColor = stroke.color;
+      ctx.shadowBlur  = stroke.glowBlur * 2.5;
+    }
+  }
+  ctx.lineCap  = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length - 1; i++) {
+    const mx = (pts[i].x + pts[i + 1].x) / 2;
+    const my = (pts[i].y + pts[i + 1].y) / 2;
+    ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
+  }
+  ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+  ctx.stroke();
+
+  if (!stroke.isEraser && stroke.glowBlur > 0) {
+    ctx.globalAlpha = 0.3 * alpha;
+    ctx.lineWidth   = stroke.lineWidth * 2.4;
+    ctx.shadowBlur  = stroke.glowBlur * 5;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/* ─── Apply a stored erase circle to ctx ─── */
+function applyEraseOp(ctx, op) {
+  ctx.save();
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.beginPath();
+  ctx.arc(op.x, op.y, op.r, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0,0,0,1)';
+  ctx.fill();
+  ctx.restore();
+}
+
+/* ═══════════════════════════════════════════════════
+   FIX: redrawAll — redraws strokes then erase ops then active stroke
+   This ensures:
+   1. Erase ops always persist correctly overtop drawn strokes
+   2. The currentStroke (live drawing) shows up even during ghost-mode redraws
+═══════════════════════════════════════════════════ */
+function redrawAll() {
+  drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+  // 1. Draw all completed strokes
+  state.strokes.forEach(s => paintFullStroke(drawCtx, s));
+  // 2. Apply all erase operations on top (so they cut through completed strokes)
+  state.eraseOps.forEach(op => applyEraseOp(drawCtx, op));
+  // 3. FIX: Draw the currently-active stroke on top so it doesn't vanish in ghost mode
+  if (state.currentStroke && state.currentStroke.points.length >= 2) {
+    paintFullStroke(drawCtx, state.currentStroke);
+  }
+}
+
+/* ═══════════════════════════════════════════════════
+   GHOST MODE — fade old strokes
+═══════════════════════════════════════════════════ */
+const GHOST_LIFE = 6000; // ms to fully fade
+
+function updateGhost() {
+  if (!state.ghost) return;
+  const now = Date.now();
+  let changed = false;
+  state.strokes = state.strokes.filter(s => {
+    s.alpha = Math.max(0, 1 - (now - s.born) / GHOST_LIFE);
+    changed = true;
+    return s.alpha > 0;
+  });
+  if (changed) redrawAll();
+}
+
+/* ═══════════════════════════════════════════════════
+   FIX: ERASE BY HAND (open palm)
+   Now stores each erase circle in state.eraseOps so they
+   survive redrawAll() calls (ghost mode, undo, resize)
+═══════════════════════════════════════════════════ */
+let _lastErasePos = null;
+
+function eraseByHand(x, y, radius) {
+  // Throttle: skip if palm barely moved
+  if (_lastErasePos &&
+      Math.hypot(x - _lastErasePos.x, y - _lastErasePos.y) < 8) return;
+  _lastErasePos = { x, y };
+
+  const op = { x, y, r: radius, ts: Date.now() };
+  state.eraseOps.push(op);
+  // Also apply immediately for instant feedback
+  applyEraseOp(drawCtx, op);
+}
+
+/* ═══════════════════════════════════════════════════
+   PARTICLES
+═══════════════════════════════════════════════════ */
+function spawnParticles(x, y, color) {
+  const count = Math.floor(Math.random() * 3) + 1;
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = Math.random() * 2.2 + 0.4;
+    state.particles.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 1.0,
+      decay: Math.random() * 0.045 + 0.018,
+      size: Math.random() * 3 + 1,
+      color,
+    });
+  }
+}
+
+function updateParticles() {
+  partCtx.clearRect(0, 0, partCanvas.width, partCanvas.height);
+  state.particles = state.particles.filter(p => {
+    p.x   += p.vx;
+    p.y   += p.vy;
+    p.vy  += 0.06; // gravity
+    p.life -= p.decay;
+    if (p.life <= 0) return false;
+    partCtx.save();
+    partCtx.globalAlpha  = p.life;
+    partCtx.beginPath();
+    partCtx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    partCtx.fillStyle    = p.color;
+    partCtx.shadowColor  = p.color;
+    partCtx.shadowBlur   = 10;
+    partCtx.fill();
+    partCtx.restore();
+    return true;
+  });
+}
+
+/* ═══════════════════════════════════════════════════
+   LANDMARK OVERLAY
+═══════════════════════════════════════════════════ */
+const LM_CONNECTIONS = [
+  [0,1],[1,2],[2,3],[3,4],
+  [0,5],[5,6],[6,7],[7,8],
+  [5,9],[9,10],[10,11],[11,12],
+  [9,13],[13,14],[14,15],[15,16],
+  [13,17],[17,18],[18,19],[19,20],
+  [0,17],
+];
+
+function drawLandmarks(lms) {
+  lmCtx.clearRect(0, 0, lmCanvas.width, lmCanvas.height);
+  const W = lmCanvas.width, H = lmCanvas.height;
+  const px = lm => ({ x: (1 - lm.x) * W, y: lm.y * H });
+
+  // Connections
+  lmCtx.strokeStyle = 'rgba(0,229,255,0.35)';
+  lmCtx.lineWidth   = 1.5;
+  LM_CONNECTIONS.forEach(([a, b]) => {
+    const pa = px(lms[a]), pb = px(lms[b]);
+    lmCtx.beginPath();
+    lmCtx.moveTo(pa.x, pa.y);
+    lmCtx.lineTo(pb.x, pb.y);
+    lmCtx.stroke();
+  });
+
+  // Joints
+  lms.forEach((lm, i) => {
+    const p = px(lm);
+    const isIndexTip = (i === 8);
+    lmCtx.beginPath();
+    lmCtx.arc(p.x, p.y, isIndexTip ? 7 : 3, 0, Math.PI * 2);
+    lmCtx.fillStyle   = isIndexTip ? 'rgba(255,77,196,0.95)' : 'rgba(0,229,255,0.55)';
+    lmCtx.shadowColor = isIndexTip ? '#FF4DC4' : '#00E5FF';
+    lmCtx.shadowBlur  = isIndexTip ? 16 : 7;
+    lmCtx.fill();
+  });
+}
+
+/* ═══════════════════════════════════════════════════
+   GESTURE DETECTION
+   draw  = only index finger extended
+   erase = all 4 fingers extended (open palm)
+   idle  = anything else
+═══════════════════════════════════════════════════ */
+// FIX: compare tip to PIP joint (more reliable across hand sizes & distances)
+function isUp(lms, tip, pip) {
+  return lms[tip].y < lms[pip].y - 0.015;
+}
+
+function gestureFromLandmarks(lms) {
+  // PIP joints: index=6, middle=10, ring=14, pinky=18
+  const indexUp  = isUp(lms, 8,  6);
+  const middleUp = isUp(lms, 12, 10);
+  const ringUp   = isUp(lms, 16, 14);
+  const pinkyUp  = isUp(lms, 20, 18);
+
+  if (indexUp && !middleUp && !ringUp && !pinkyUp) return 'draw';
+  if (indexUp &&  middleUp &&  ringUp &&  pinkyUp) return 'erase';
+  return 'idle';
+}
+
+/* ═══════════════════════════════════════════════════
+   MODE BADGE
+═══════════════════════════════════════════════════ */
+let _lastBadgeMode = '';
+function updateBadge(mode) {
+  if (mode === _lastBadgeMode) return;
+  _lastBadgeMode = mode;
+  modeBadge.className = '';
+  if (mode === 'draw') {
+    modeBadge.classList.add('draw');
+    modeBadge.textContent = state.eraser ? '⬜ ERASING (TOOL)' : '✏️ DRAWING';
+  } else if (mode === 'erase') {
+    modeBadge.classList.add('erase');
+    modeBadge.textContent = '🌫 ERASING';
+  } else {
+    modeBadge.classList.add('idle');
+    modeBadge.textContent = '✋ SHOW HAND';
+  }
+}
+
+/* ═══════════════════════════════════════════════════
+   POSITIONAL SMOOTHING
+═══════════════════════════════════════════════════ */
+const SMOOTH_N   = 5;
+const posHistory = [];
+
+function smoothed(x, y) {
+  posHistory.push({ x, y });
+  if (posHistory.length > SMOOTH_N) posHistory.shift();
+  const n = posHistory.length;
+  return {
+    x: posHistory.reduce((a, p) => a + p.x, 0) / n,
+    y: posHistory.reduce((a, p) => a + p.y, 0) / n,
+  };
+}
+
+/* ═══════════════════════════════════════════════════
+   MEDIAPIPE RESULT HANDLER
+═══════════════════════════════════════════════════ */
+function onResults(results) {
+  if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+    if (state.drawing) endStroke();
+    _lastErasePos = null;
+    state.handVisible = false;
+    handPill.textContent = 'No Hand';
+    handPill.style.color = 'rgba(255,255,255,0.3)';
+    lmCtx.clearRect(0, 0, lmCanvas.width, lmCanvas.height);
+    updateBadge('idle');
+    posHistory.length = 0;
+    return;
+  }
+
+  state.handVisible    = true;
+  handPill.textContent = '🖐 Hand Detected';
+  handPill.style.color = '#39FF14';
+
+  const lms     = results.multiHandLandmarks[0];
+  const gesture = gestureFromLandmarks(lms);
+
+  drawLandmarks(lms);
+
+  // Index finger tip (landmark 8), mirrored
+  const rawX = (1 - lms[8].x) * drawCanvas.width;
+  const rawY = lms[8].y        * drawCanvas.height;
+  const { x, y } = smoothed(rawX, rawY);
+
+  if (gesture === 'draw') {
+    updateBadge('draw');
+    if (!state.drawing) {
+      beginStroke(x, y);    // start a new stroke
+    } else {
+      continueStroke(x, y); // extend existing stroke
+    }
+  } else if (gesture === 'erase') {
+    updateBadge('erase');
+    if (state.drawing) endStroke();
+    // Use midpoint of middle finger base (landmark 9) as palm center
+    const palmX = (1 - lms[9].x) * drawCanvas.width;
+    const palmY = lms[9].y        * drawCanvas.height;
+    eraseByHand(palmX, palmY, 60);
+  } else {
+    if (state.drawing) endStroke();
+    _lastErasePos = null;
+    updateBadge('idle');
+  }
+}
+
+/* ═══════════════════════════════════════════════════
+   MEDIAPIPE INIT — with error handling
+═══════════════════════════════════════════════════ */
+let hands, mpCamera;
+
+// FIX: guard so animation loops only ever start ONCE even if startApp is called multiple times
+let _loopsStarted = false;
+
+async function startApp() {
+  const startBtn   = document.getElementById('start-btn');
+  const loadingEl  = document.getElementById('loading-indicator');
+  const splashHint = document.querySelector('.splash-hint');
+
+  startBtn.style.display   = 'none';
+  loadingEl.classList.add('visible');
+  splashHint.style.opacity = '0.5';
+
+  // FIX: start loops once here, regardless of camera outcome, but only one time ever
+  if (!_loopsStarted) {
+    _loopsStarted = true;
+
+    // ── Particle + Ghost animation loop ──
+    (function loop() { updateParticles(); updateGhost(); requestAnimationFrame(loop); })();
+
+    // ── FPS counter ──
+    let frames = 0, last = performance.now();
+    (function fpsTick() {
+      frames++;
+      const now = performance.now();
+      if (now - last >= 1000) {
+        fpsPill.textContent = `${frames} FPS`;
+        frames = 0; last = now;
+      }
+      requestAnimationFrame(fpsTick);
+    })();
+  }
+
+  try {
+    // Test camera access first — gives a clear, specific error if denied
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    stream.getTracks().forEach(t => t.stop()); // release; mpCamera will re-open
+
+    hands = new Hands({
+      locateFile: f =>
+        `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${f}`,
+    });
+    hands.setOptions({
+      maxNumHands:             1,
+      modelComplexity:         1,
+      minDetectionConfidence:  0.72,
+      minTrackingConfidence:   0.62,
+    });
+    hands.onResults(onResults);
+
+    mpCamera = new Camera(video, {
+      onFrame: async () => { await hands.send({ image: video }); },
+      width: 1280,
+      height: 720,
+    });
+    await mpCamera.start();
+
+    // Hide splash smoothly
+    document.getElementById('splash').classList.add('hidden');
+    showToast('✍ AirWrite ready! Raise your index finger to draw.');
+
+  } catch (err) {
+    console.error('AirWrite init error:', err);
+    loadingEl.classList.remove('visible');
+    startBtn.style.display   = '';
+    splashHint.style.opacity = '1';
+
+    let msg = 'Something went wrong. Please reload and try again.';
+    if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+      msg = 'Camera access was denied. Click the 🔒 icon in your address bar → allow camera → reload.';
+    } else if (err.name === 'NotFoundError') {
+      msg = 'No camera found. Please connect a webcam and reload.';
+    } else if (err.name === 'NotReadableError') {
+      msg = 'Camera is in use by another app. Close it and reload.';
+    } else if (err.name === 'SecurityError') {
+      msg = 'Camera access blocked. Make sure the page is served over HTTP/HTTPS (not opened as a file).';
+    } else if (err.message) {
+      msg = err.message;
+    }
+    errMsg.textContent = msg;
+    errScreen.classList.add('visible');
+  }
+}
+
+/* ═══════════════════════════════════════════════════
+   BOOT
+═══════════════════════════════════════════════════ */
+updateBadge('idle');
+</script>
+</body>
+</html>
