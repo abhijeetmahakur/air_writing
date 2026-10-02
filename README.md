@@ -1,31 +1,32 @@
 
-# NEON Air Writing - Advanced Cyberpunk Edition
+# AirWrite
 
-## 🚀 Features
-- **Neon Glowing Trails**: Multi-layer Gaussian blur glow with brightness bloom overlay
-- **Trailing Light Effect**: Exponential fade on stroke segments (older points dim)
-- **Smooth Glowing Lines**: Catmull-Rom spline interpolation for curves
-- **Pulsing Glow Animation**: 2Hz sine wave thickness/alpha pulse
-- **Gesture Controls**: 1 finger = DRAW, 2 = TOOL, 5 = CLEAR (debounced stability)
-- **Performance Optimized**: ROI blur, buffer=1, LINE_AA, frame time monitoring (30+fps)
-- **Utility Features**:
-  - FPS counter + mode/points display
-  - Save canvas `'s'` -> air_drawing_save_001.png
-  - `'b'` cycle neon brushes, `'c'` clear, `'q'` quit
-- **Sound Feedback**: Uncomment `winsound.Beep(800, 20)` in draw_trail
+AirWrite is a single-page browser drawing experiment. It uses a webcam and MediaPipe Hands to track a hand, then draws gestures on an HTML canvas.
 
-## Tech Stack
-MediaPipe Hands + OpenCV + NumPy + SciPy (spline smooth)
+## Requirements
 
-## Setup & Run
+- A modern browser with webcam support
+- Webcam permission
+- Internet access for the MediaPipe and font assets loaded from CDNs
+
+Camera access requires a secure browser context. Use `localhost` or HTTPS rather than opening the page directly from an arbitrary `file://` URL.
+
+## Run locally
+
+From this repository directory, start a local static server:
+
 ```bash
-pip install opencv-python mediapipe numpy scipy
-python air_writing.py
+python -m http.server 8000
 ```
 
-## Controls
-- **Draw**: 1 finger up (index or any)
-- **Gestures**: Stable finger count changes mode (DRAW/TOOL/CLEAR)
-- **Keyboard**: `b` brush cycle | `c` clear | `s` save PNG | `q` quit
+Open <http://localhost:8000> and allow camera access.
 
-Cyberpunk neon air drawing with smooth real-time effects!
+## Controls
+
+The page includes on-screen controls for color, brush settings, erasing, ghost mode, undo, clearing, and saving. Keyboard shortcuts are shown in the interface.
+
+## Limitations
+
+Camera availability and hand tracking depend on browser permissions, lighting, and the connected device. There is no automated test suite or build step in this repository.
+
+No project license is included. Check the rights for bundled or externally loaded assets before redistributing them.
