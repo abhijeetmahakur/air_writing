@@ -1,0 +1,19 @@
+{
+  "name": "air-write",
+  "version": "1.0.0",
+  "description": "Gesture-controlled AI air-drawing studio powered by MediaPipe Hands and HTML5 Canvas",
+  "main": "index.html",
+  "scripts": {
+    "start": "npx serve . -l 8000",
+    "dev": "npx serve . -l 8000"
+  },
+  "keywords": [
+    "mediapipe",
+    "computer-vision",
+    "hand-tracking",
+    "canvas",
+    "javascript"
+  ],
+  "author": "Abhijeet Mahakur",
+  "license": "MIT"
+}

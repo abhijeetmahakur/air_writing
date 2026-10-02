@@ -1,0 +1,2 @@
+# Standalone Desktop Packaging for AirWrite
+pyinstaller>=6.0.0

@@ -1,4 +1,21 @@
+# System files
 .DS_Store
 Thumbs.db
-.vscode/
 *.log
+
+# Python cache & packaging
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+build/
+dist/
+*.spec
+*.exe
+
+# Node
+node_modules/
+
+# IDEs
+.vscode/
+.idea/
